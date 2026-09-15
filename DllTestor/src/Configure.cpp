@@ -124,6 +124,9 @@ int ReadIniFile(const _tstring& strIniPath, config_s& _cfg)
 			_cfg.vInPlaceSuffixs = vParsedInPlaceExt;
 		}
 
+		//独立处理开关
+		_cfg.bIsolatePerDir = Ini.GetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
+
 		_cfg.nWindowWidth = Ini.GetLongValue(INI_PRESUFFIX, INI_WIN_WIDTH, _cfg.nWindowWidth);
 		_cfg.nWindowHeight = Ini.GetLongValue(INI_PRESUFFIX, INI_WIN_HEIGHT, _cfg.nWindowHeight);
 	}
@@ -150,6 +153,7 @@ int WriteIniFile(const _tstring& strIniPath, const config_s& _cfg)
 	Ini.SetValue(INI_PRESUFFIX, INI_INPLACE_EXTENSIONS, ExtensionsToString(_cfg.vInPlaceSuffixs).c_str());
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_UTF8_BOM, _cfg.bInPlaceUtf8Bom);
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_DRYRUN, _cfg.bInPlaceDryRun);
+	Ini.SetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
 	Ini.SetLongValue(INI_PRESUFFIX, INI_WIN_WIDTH, _cfg.nWindowWidth);
 	Ini.SetLongValue(INI_PRESUFFIX, INI_WIN_HEIGHT, _cfg.nWindowHeight);
 

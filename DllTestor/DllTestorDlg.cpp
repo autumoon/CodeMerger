@@ -67,6 +67,7 @@ void CDllTestorDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_LIST_ITEMS, m_listItems);
 	DDX_Control(pDX, IDC_EDIT_DIR, m_eDstDir);
+	DDX_Control(pDX, IDC_CHECK_ISOLATE, m_chkIsolate);
 }
 
 _tstring CDllTestorDlg::GetIniPath(const TCHAR* szFileExt /*= _T(".ini")*/)
@@ -334,6 +335,9 @@ BOOL CDllTestorDlg::OnInitDialog()
 	{
 		WriteIniFile(strIniPath, m_cfg);
 	}
+
+	//恢复“每个目录独立处理”勾选状态
+	m_chkIsolate.SetCheck(m_cfg.bIsolatePerDir ? BST_CHECKED : BST_UNCHECKED);
 
 	//只能拖拽单个目录
 	m_eDstDir.SetFlag(EDIT_DIR_JUDGE | EDIT_SIG_JUDGE);
@@ -642,6 +646,54 @@ void CDllTestorDlg::OnBnClickedButtonClearItems()
 	}
 }
 
+bool CDllTestorDlg::MergeFilesToOutput(
+	const std::vector<_tstring>& vFiles,
+	const _tstring& stOutputFile,
+	const std::string& stHeader,
+	const _tstring& stDstDir,
+	CProgressInterface* ppi,
+	int nProgressStart,
+	int nProgressTotal)
+{
+	std::ofstream out(stOutputFile.c_str(), std::ios::binary | std::ios::trunc);
+	if (!out.is_open())
+	{
+		return false;
+	}
+
+	out.write(stHeader.c_str(), (std::streamsize)stHeader.size());
+
+	_tstring stReportName = stDstDir + _T("InPlaceConvertReport.md");
+	_tstring stCodeAll    = stDstDir + _T("codeAll.md");
+
+	for (size_t i = 0; i < vFiles.size(); ++i)
+	{
+		const _tstring& stFile = vFiles[i];
+
+		//排除输出文件自身
+		if (_wcsicmp(stFile.c_str(), stOutputFile.c_str()) == 0)
+		{
+			continue;
+		}
+		//排除原地转码报告文件
+		if (_wcsicmp(stFile.c_str(), stReportName.c_str()) == 0)
+		{
+			continue;
+		}
+		//排除 codeAll.md（独立模式下不需要被合并进来）
+		if (_wcsicmp(stFile.c_str(), stCodeAll.c_str()) == 0)
+		{
+			continue;
+		}
+
+		ProcessFile(stFile, out, m_cfg);
+		ppi->SetProgressValue(nProgressStart + (int)i + 1, nProgressTotal);
+	}
+
+	out.close();
+	return true;
+}
+
 void CDllTestorDlg::OnBnClickedOk()
 {
 	// TODO:  在此添加命令处理程序代码
@@ -678,6 +730,7 @@ void CDllTestorDlg::OnBnClickedOk()
 
 	//保存配置文件
 	m_cfg.vItemPaths = vItems;
+	m_cfg.bIsolatePerDir = (m_chkIsolate.GetCheck() == BST_CHECKED);
 	m_cfg.vDstPaths.clear();
 	m_cfg.vDstPaths.push_back(stDstDir);
 	WriteIniFile(GetIniPath(), m_cfg);
@@ -737,65 +790,130 @@ void CDllTestorDlg::OnBnClickedOk()
 	}
 	// ---- 原地转码结束 ----
 	stDstDir = CStdStr::AddSlashIfNeeded(stDstDir);
-	_tstring stOutputFile = stDstDir + _T("codeAll.md");
 
-	std::ofstream out(stOutputFile.c_str(), std::ios::binary | std::ios::trunc);
-	if (!out.is_open())
-	{
-		AfxMessageBox(_T("无法创建输出文件：") + CString(stOutputFile.c_str()));
-		return;
-	}
+	int nGlobalTotal = 0;	// 最终进度分母
 
-	// ---- 2. 写头部 ----
+	if (!m_cfg.bIsolatePerDir)
 	{
+		// ---------- 合并模式（原有行为） ----------
+		_tstring stOutputFile = stDstDir + _T("codeAll.md");
+
+		std::vector<_tstring> vAllFiles;
+		for (size_t i = 0; i < vItems.size(); ++i)
+		{
+			if (!PathIsDirectory(vItems[i].c_str()))
+			{
+				continue;
+			}
+
+			std::vector<_tstring> vFound;
+			getFiles(vItems[i], vFound, m_cfg.vSuffixs, true);
+
+			for (size_t k = 0; k < vFound.size(); ++k)
+			{
+				vAllFiles.push_back(vFound[k]);
+			}
+		}
+
+		nGlobalTotal = (int)vAllFiles.size();
+		if (nGlobalTotal == 0)
+		{
+			nGlobalTotal = 1;
+		}
+
 		std::string header = TextMerge::WideToUtf8(L"# 文件清单\r\n\r\n");
-		out.write(header.c_str(), (std::streamsize)header.size());
-	}
-
-	// ---- 3. 收集所有待处理文件 ----
-	std::vector<_tstring> vAllFiles;
-	for (size_t i = 0; i < vItems.size(); ++i)
-	{
-		const _tstring& stCurItem = vItems[i];
-		if (!PathIsDirectory(stCurItem.c_str()))
-		{
-			continue;
-		}
-
-		std::vector<_tstring> vFound;
-		getFiles(stCurItem, vFound, m_cfg.vSuffixs, true);	// 强制递归
-
-		for (size_t k = 0; k < vFound.size(); ++k)
-		{
-			if (_wcsicmp(vFound[k].c_str(), stOutputFile.c_str()) == 0)
-			{
-				continue;	// 排除输出文件自身
-			}
-			_tstring stReportName = stDstDir + _T("InPlaceConvertReport.md");
-			if (_wcsicmp(vFound[k].c_str(), stReportName.c_str()) == 0)
-			{
-				continue;	// 排除原地转码报告文件
-			}
-			vAllFiles.push_back(vFound[k]);
-		}
-	}
-
-	// ---- 4. 逐个处理 ----
-	size_t nTotal = vAllFiles.size();
-	if (nTotal == 0)
-	{
-		ppi->SetProgressValue(1, 1);
+		MergeFilesToOutput(vAllFiles, stOutputFile, header, stDstDir, ppi, 0, nGlobalTotal);
 	}
 	else
 	{
-		for (size_t i = 0; i < nTotal; ++i)
+		// ---------- 独立模式（每个目录一份） ----------
+		struct Job
 		{
-			ProcessFile(vAllFiles[i], out, m_cfg);
-			ppi->SetProgressValue((int)(i + 1), (int)nTotal);
+			_tstring stDir;			//目录名（不含路径），用于标题
+			_tstring stOutputFile;	//输出 .md 完整路径
+			std::vector<_tstring> vFiles;
+		};
+
+		std::vector<Job> jobs;
+
+		for (size_t i = 0; i < vItems.size(); ++i)
+		{
+			if (!PathIsDirectory(vItems[i].c_str()))
+			{
+				continue;
+			}
+
+			Job job;
+			job.stDir = CStdStr::GetNameOfDir(vItems[i]);	//取目录名
+			if (job.stDir.empty())
+			{
+				job.stDir = _T("unnamed");
+			}
+
+			//计算输出文件名：<目录名>.md；若已存在则 <目录名>_2.md ...
+			_tstring stBaseName = job.stDir;
+			_tstring stCandidate;
+			for (int idx = 1; idx < 1000; ++idx)
+			{
+				if (idx == 1)
+				{
+					stCandidate = stDstDir + stBaseName + _T(".md");
+				}
+				else
+				{
+					stCandidate = stDstDir + stBaseName + _T("_")
+						+ std::to_wstring(idx) + _T(".md");
+				}
+
+				DWORD dwAttr = ::GetFileAttributesW(stCandidate.c_str());
+				if (dwAttr == INVALID_FILE_ATTRIBUTES)
+				{
+					break;
+				}
+			}
+			job.stOutputFile = stCandidate;
+
+			//递归收集该目录下的文件
+			getFiles(vItems[i], job.vFiles, m_cfg.vSuffixs, true);
+
+			jobs.push_back(job);
+		}
+
+		//计算全局总文件数，用于进度条
+		for (size_t j = 0; j < jobs.size(); ++j)
+		{
+			nGlobalTotal += (int)jobs[j].vFiles.size();
+		}
+		if (nGlobalTotal == 0)
+		{
+			nGlobalTotal = 1;
+		}
+
+		int nDone = 0;
+		for (size_t j = 0; j < jobs.size(); ++j)
+		{
+			_tstring stHeader = L"# 目录：" + jobs[j].stDir + L"\r\n\r\n";
+			std::string header = TextMerge::WideToUtf8(stHeader);
+
+			bool ok = MergeFilesToOutput(jobs[j].vFiles,
+				jobs[j].stOutputFile,
+				header,
+				stDstDir,
+				ppi,
+				nDone,
+				nGlobalTotal);
+			if (!ok)
+			{
+				CString strErr;
+				strErr.Format(_T("无法创建输出文件：\r\n%s"),
+					jobs[j].stOutputFile.c_str());
+				AfxMessageBox(strErr, MB_OK | MB_ICONWARNING);
+				//不中断，继续处理下一个目录
+			}
+
+			nDone += (int)jobs[j].vFiles.size();
 		}
 	}
-
-	out.close();
 
 	/*** 主程序结束 ***/
 

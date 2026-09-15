@@ -16,6 +16,7 @@
 #define INI_INPLACE_EXTENSIONS		_T("InPlaceExtensions")
 #define INI_INPLACE_UTF8_BOM		_T("InPlaceUtf8Bom")
 #define INI_INPLACE_DRYRUN		_T("InPlaceDryRun")
+#define INI_ISOLATE_PER_DIR	_T("IsolatePerDir")
 
 #ifdef _UNICODE
 

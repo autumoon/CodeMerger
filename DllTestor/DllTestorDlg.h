@@ -65,6 +65,15 @@ protected:
 
 	//处理单个文件
 	int ProcessFile(const _tstring& stSrcPath, std::ofstream& out, config_s& _cfg);
+
+	//合并一组文件到单个输出文件，返回是否成功创建输出文件
+	bool MergeFilesToOutput(const std::vector<_tstring>& vFiles,
+		const _tstring& stOutputFile,
+		const std::string& stHeader,
+		const _tstring& stDstDir,
+		CProgressInterface* ppi,
+		int nProgressStart,
+		int nProgressTotal);
 	
 #ifdef CMD_OUTPUT
 	int SetCommandLine()
@@ -105,6 +114,7 @@ public:
 
 	//主要实现
 	CMyEdit m_eDstDir;
+	CButton m_chkIsolate;
 	afx_msg void OnBnClickedOk();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 };

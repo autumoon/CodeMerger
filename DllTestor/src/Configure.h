@@ -21,6 +21,7 @@ typedef struct _config_s
 	std::vector<_tstring> vInPlaceSuffixs;
 	bool bInPlaceUtf8Bom;
 	bool bInPlaceDryRun;
+	bool bIsolatePerDir;
 
 	_config_s()
 	{
@@ -47,6 +48,7 @@ typedef struct _config_s
 		bInPlaceConvert = false;
 		bInPlaceUtf8Bom = true;
 		bInPlaceDryRun = false;
+		bIsolatePerDir = false;
 		vInPlaceSuffixs.push_back(_T(".c"));
 		vInPlaceSuffixs.push_back(_T(".cpp"));
 		vInPlaceSuffixs.push_back(_T(".h"));

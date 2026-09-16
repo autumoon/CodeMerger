@@ -17,6 +17,8 @@
 #define INI_INPLACE_UTF8_BOM		_T("InPlaceUtf8Bom")
 #define INI_INPLACE_DRYRUN		_T("InPlaceDryRun")
 #define INI_ISOLATE_PER_DIR	_T("IsolatePerDir")
+#define INI_EXCLUDE_DIR_NAMES	_T("ExcludeDirNames")
+#define INI_EXCLUDE_FILE_NAMES	_T("ExcludeFileNames")
 
 #ifdef _UNICODE
 

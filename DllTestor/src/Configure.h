@@ -22,6 +22,8 @@ typedef struct _config_s
 	bool bInPlaceUtf8Bom;
 	bool bInPlaceDryRun;
 	bool bIsolatePerDir;
+	std::vector<_tstring> vExcludeDirNames;
+	std::vector<_tstring> vExcludeFileNames;
 
 	_config_s()
 	{
@@ -54,6 +56,28 @@ typedef struct _config_s
 		vInPlaceSuffixs.push_back(_T(".h"));
 		vInPlaceSuffixs.push_back(_T(".hpp"));
 		vInPlaceSuffixs.push_back(_T(".cs"));
+
+		//默认排除的目录名（按路径段精确匹配，大小写不敏感）
+		static const TCHAR* aszDefaultExcludeDirs[] = {
+			_T(".git"), _T("node_modules"), _T("build"), _T(".vs")
+		};
+		const int nExcludeDirNum = sizeof(aszDefaultExcludeDirs)
+			/ sizeof(aszDefaultExcludeDirs[0]);
+		for (int i = 0; i < nExcludeDirNum; ++i)
+		{
+			vExcludeDirNames.push_back(aszDefaultExcludeDirs[i]);
+		}
+
+		//默认排除的文件名（按文件名精确匹配，大小写不敏感）
+		static const TCHAR* aszDefaultExcludeFiles[] = {
+			_T("Thumbs.db"), _T("desktop.ini"), _T("package-lock.json")
+		};
+		const int nExcludeFileNum = sizeof(aszDefaultExcludeFiles)
+			/ sizeof(aszDefaultExcludeFiles[0]);
+		for (int i = 0; i < nExcludeFileNum; ++i)
+		{
+			vExcludeFileNames.push_back(aszDefaultExcludeFiles[i]);
+		}
 	}
 
 }config_s;

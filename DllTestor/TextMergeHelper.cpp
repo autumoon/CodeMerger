@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "TextMergeHelper.h"
+#include "StdStrFile.h"
 
 namespace TextMerge
 {
@@ -344,5 +345,69 @@ namespace TextMerge
 
 		encName = L"未知编码";
 		return data;
+	}
+
+	bool IsPathExcluded(const std::wstring& strFullPath,
+		const std::vector<std::wstring>& vExcludeDirNames,
+		const std::vector<std::wstring>& vExcludeFileNames)
+	{
+		if (vExcludeDirNames.empty() && vExcludeFileNames.empty())
+		{
+			return false;
+		}
+
+		// 1) 提取文件名（最后一段）
+		size_t nLastSlash = strFullPath.find_last_of(L"\\/");
+		std::wstring strName = (nLastSlash == std::wstring::npos)
+			? strFullPath
+			: strFullPath.substr(nLastSlash + 1);
+
+		// 2) 文件名匹配
+		if (!vExcludeFileNames.empty() && !strName.empty())
+		{
+			std::wstring strNameLower = CStdStr::ToUpperLower(strName);
+			for (size_t i = 0; i < vExcludeFileNames.size(); ++i)
+			{
+				if (strNameLower == vExcludeFileNames[i])
+				{
+					return true;
+				}
+			}
+		}
+
+		// 3) 目录段匹配：对最后一段（文件名）之前的所有路径段逐一比对
+		if (!vExcludeDirNames.empty())
+		{
+			size_t nEnd = (nLastSlash == std::wstring::npos)
+				? strFullPath.size()
+				: nLastSlash;
+
+			size_t nStart = 0;
+			while (nStart < nEnd)
+			{
+				size_t nSep = strFullPath.find_first_of(L"\\/", nStart);
+				if (nSep == std::wstring::npos || nSep >= nEnd)
+				{
+					nSep = nEnd;
+				}
+
+				if (nSep > nStart)
+				{
+					std::wstring strSeg = strFullPath.substr(nStart, nSep - nStart);
+					std::wstring strSegLower = CStdStr::ToUpperLower(strSeg);
+					for (size_t i = 0; i < vExcludeDirNames.size(); ++i)
+					{
+						if (strSegLower == vExcludeDirNames[i])
+						{
+							return true;
+						}
+					}
+				}
+
+				nStart = nSep + 1;
+			}
+		}
+
+		return false;
 	}
 }

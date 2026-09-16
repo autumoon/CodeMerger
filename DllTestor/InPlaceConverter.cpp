@@ -292,6 +292,12 @@ namespace InPlace
 
 					if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 					{
+						//排除指定目录，不进入递归
+						_tstring strDirNameLow = CStdStr::ToUpperLower(strName);
+						if (CStdTpl::VectorContains(_cfg.vExcludeDirNames, strDirNameLow))
+						{
+							continue;
+						}
 						vStack.push_back(CStdStr::AddSlashIfNeeded(strFull));
 						continue;
 					}
@@ -299,6 +305,13 @@ namespace InPlace
 					if (HasHiddenOrSystem(strFull))
 					{
 						++r.nSkipped;
+						continue;
+					}
+
+					//按名称排除文件（不计入任何计数）
+					if (TextMerge::IsPathExcluded(strFull,
+							_cfg.vExcludeDirNames, _cfg.vExcludeFileNames))
+					{
 						continue;
 					}
 

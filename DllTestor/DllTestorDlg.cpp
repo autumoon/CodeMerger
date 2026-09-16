@@ -811,6 +811,13 @@ void CDllTestorDlg::OnBnClickedOk()
 
 			for (size_t k = 0; k < vFound.size(); ++k)
 			{
+				//按名称排除
+				if (TextMerge::IsPathExcluded(vFound[k],
+						m_cfg.vExcludeDirNames, m_cfg.vExcludeFileNames))
+				{
+					continue;
+				}
+
 				vAllFiles.push_back(vFound[k]);
 			}
 		}
@@ -875,6 +882,20 @@ void CDllTestorDlg::OnBnClickedOk()
 
 			//递归收集该目录下的文件
 			getFiles(vItems[i], job.vFiles, m_cfg.vSuffixs, true);
+
+			//按名称排除，保证 nGlobalTotal 统计与实际处理数一致
+			std::vector<_tstring> vFiltered;
+			vFiltered.reserve(job.vFiles.size());
+			for (size_t k = 0; k < job.vFiles.size(); ++k)
+			{
+				if (TextMerge::IsPathExcluded(job.vFiles[k],
+						m_cfg.vExcludeDirNames, m_cfg.vExcludeFileNames))
+				{
+					continue;
+				}
+				vFiltered.push_back(job.vFiles[k]);
+			}
+			job.vFiles.swap(vFiltered);
 
 			jobs.push_back(job);
 		}

@@ -77,6 +77,56 @@ _tstring ExtensionsToString(const std::vector<_tstring>& vSuffixs)
 	return strRes;
 }
 
+//解析名称列表（逗号/分号分隔、trim、转小写、去重；不补前导点）
+static std::vector<_tstring> ParseNameList(const _tstring& strList)
+{
+	std::vector<_tstring> vRes;
+
+	if (strList.empty())
+	{
+		return vRes;
+	}
+
+	_tstring strCur = CStdStr::ReplaceAllDistinct(strList, _T(";"), _T(","));
+	std::vector<_tstring> vTokens = CStdStr::Split(strCur, _T(","));
+
+	for (size_t i = 0; i < vTokens.size(); ++i)
+	{
+		_tstring strItem = CStdStr::Trim(vTokens[i]);
+		if (strItem.empty())
+		{
+			continue;
+		}
+
+		strItem = CStdStr::ToUpperLower(strItem);
+
+		if (!CStdTpl::VectorContains(vRes, strItem))
+		{
+			vRes.push_back(strItem);
+		}
+	}
+
+	return vRes;
+}
+
+//名称列表转字符串（逗号分隔）
+static _tstring NameListToString(const std::vector<_tstring>& vNames)
+{
+	_tstring strRes;
+
+	const size_t nNum = vNames.size();
+	for (size_t i = 0; i < nNum; ++i)
+	{
+		if (i > 0)
+		{
+			strRes += _T(",");
+		}
+		strRes += vNames[i];
+	}
+
+	return strRes;
+}
+
 int ReadIniFile(const _tstring& strIniPath, config_s& _cfg)
 {
 	bool bRes = CStdFile::IfAccessFile(strIniPath.c_str());
@@ -127,6 +177,15 @@ int ReadIniFile(const _tstring& strIniPath, config_s& _cfg)
 		//独立处理开关
 		_cfg.bIsolatePerDir = Ini.GetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
 
+		//按名称排除（无该键时沿用默认值，显式为空串则清空）
+		_tstring strExDir = Ini.GetValue(INI_PRESUFFIX, INI_EXCLUDE_DIR_NAMES,
+			NameListToString(_cfg.vExcludeDirNames).c_str());
+		_cfg.vExcludeDirNames = ParseNameList(strExDir);
+
+		_tstring strExFile = Ini.GetValue(INI_PRESUFFIX, INI_EXCLUDE_FILE_NAMES,
+			NameListToString(_cfg.vExcludeFileNames).c_str());
+		_cfg.vExcludeFileNames = ParseNameList(strExFile);
+
 		_cfg.nWindowWidth = Ini.GetLongValue(INI_PRESUFFIX, INI_WIN_WIDTH, _cfg.nWindowWidth);
 		_cfg.nWindowHeight = Ini.GetLongValue(INI_PRESUFFIX, INI_WIN_HEIGHT, _cfg.nWindowHeight);
 	}
@@ -154,6 +213,8 @@ int WriteIniFile(const _tstring& strIniPath, const config_s& _cfg)
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_UTF8_BOM, _cfg.bInPlaceUtf8Bom);
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_DRYRUN, _cfg.bInPlaceDryRun);
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
+	Ini.SetValue(INI_PRESUFFIX, INI_EXCLUDE_DIR_NAMES, NameListToString(_cfg.vExcludeDirNames).c_str());
+	Ini.SetValue(INI_PRESUFFIX, INI_EXCLUDE_FILE_NAMES, NameListToString(_cfg.vExcludeFileNames).c_str());
 	Ini.SetLongValue(INI_PRESUFFIX, INI_WIN_WIDTH, _cfg.nWindowWidth);
 	Ini.SetLongValue(INI_PRESUFFIX, INI_WIN_HEIGHT, _cfg.nWindowHeight);
 

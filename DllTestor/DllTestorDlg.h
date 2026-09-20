@@ -74,6 +74,16 @@ protected:
 		CProgressInterface* ppi,
 		int nProgressStart,
 		int nProgressTotal);
+
+	//日志栏控件（只读，自动滚动到底部）
+	CEdit m_logBox;
+
+	//追加一行日志并自动滚动到底部；最多保留 1000 行
+	void AppendLog(const CString& strLine);
+
+	//执行合并（原地转码 + 合并/独立模式）
+	//bAutoUpdate==true 时强制忽略原地转码；不弹耗时窗，只写日志
+	void RunMerge(bool bAutoUpdate);
 	
 #ifdef CMD_OUTPUT
 	int SetCommandLine()
@@ -96,6 +106,7 @@ protected:
 
 	// 生成的消息映射函数
 	virtual BOOL OnInitDialog();
+	virtual BOOL PreTranslateMessage(MSG* pMsg);	//支持日志框 Ctrl+A
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
@@ -115,6 +126,7 @@ public:
 	//主要实现
 	CMyEdit m_eDstDir;
 	CButton m_chkIsolate;
+	CButton m_chkUpdate;	//与 m_chkIsolate 并列
 	afx_msg void OnBnClickedOk();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 };

@@ -68,6 +68,8 @@ void CDllTestorDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_LIST_ITEMS, m_listItems);
 	DDX_Control(pDX, IDC_EDIT_DIR, m_eDstDir);
 	DDX_Control(pDX, IDC_CHECK_ISOLATE, m_chkIsolate);
+	DDX_Control(pDX, IDC_EDIT_LOG, m_logBox);
+	DDX_Control(pDX, IDC_CHECK_UPDATE, m_chkUpdate);
 }
 
 _tstring CDllTestorDlg::GetIniPath(const TCHAR* szFileExt /*= _T(".ini")*/)
@@ -143,6 +145,40 @@ int CDllTestorDlg::AddItemToList(_tstring stItemPath)
 #endif // ITEM_ONLY_DIR
 
 	return m_listItems.GetItemCount();
+}
+
+//追加一行日志并自动滚动到底部；最多保留 1000 行，超出则从头部丢弃最旧的行
+void CDllTestorDlg::AppendLog(const CString& strLine)
+{
+	if (m_logBox.GetSafeHwnd() == NULL)
+	{
+		return;
+	}
+
+	CString strText;
+	strText.Format(_T("[%s] %s\r\n"),
+		CTime::GetCurrentTime().Format(_T("%H:%M:%S")),
+		strLine);
+
+	int nLen = m_logBox.GetWindowTextLength();
+	m_logBox.SetSel(nLen, nLen);
+	m_logBox.ReplaceSel(strText);
+
+	const int nMaxLines = 1000;
+	int nLineCount = m_logBox.GetLineCount();
+	if (nLineCount > nMaxLines)
+	{
+		int nRemoveLines = nLineCount - nMaxLines;
+		int nCharPos = m_logBox.LineIndex(nRemoveLines);
+		if (nCharPos > 0)
+		{
+			m_logBox.SetSel(0, nCharPos);
+			m_logBox.ReplaceSel(_T(""));
+		}
+	}
+
+	//滚动到底部
+	m_logBox.LineScroll(m_logBox.GetLineCount());
 }
 
 int CDllTestorDlg::ProcessFile(const _tstring& stSrcPath, std::ofstream& out, config_s& _cfg)
@@ -236,7 +272,8 @@ BEGIN_EASYSIZE_MAP(CDllTestorDlg)
 	EASYSIZE(IDC_STATIC_DSTDIR,ES_BORDER,ES_KEEPSIZE,ES_KEEPSIZE,ES_BORDER,0)
 	EASYSIZE(IDC_BUTTON_BROWSE,ES_KEEPSIZE,ES_KEEPSIZE,ES_BORDER,ES_BORDER,0)
 	EASYSIZE(IDC_EDIT_DIR,ES_BORDER,ES_KEEPSIZE,IDC_BUTTON_BROWSE,ES_BORDER,0)
-	EASYSIZE(IDC_LIST_ITEMS,ES_BORDER,ES_BORDER,ES_BORDER,ES_BORDER,0)
+	EASYSIZE(IDC_EDIT_LOG,ES_BORDER,ES_KEEPSIZE,ES_BORDER,ES_BORDER,0)
+	EASYSIZE(IDC_LIST_ITEMS,ES_BORDER,ES_BORDER,ES_BORDER,IDC_EDIT_LOG,0)
 	EASYSIZE(IDC_BUTTON_ADD_ITEMS,ES_KEEPSIZE,ES_BORDER,ES_BORDER,ES_KEEPSIZE,0)
 	EASYSIZE(IDC_BUTTON_DEL_ITEMS,ES_KEEPSIZE,ES_BORDER,ES_BORDER,ES_KEEPSIZE,0)
 	EASYSIZE(IDC_BUTTON_CLEAR_ITEMS,ES_KEEPSIZE,ES_BORDER,ES_BORDER,ES_KEEPSIZE,0)
@@ -339,6 +376,9 @@ BOOL CDllTestorDlg::OnInitDialog()
 	//恢复“每个目录独立处理”勾选状态
 	m_chkIsolate.SetCheck(m_cfg.bIsolatePerDir ? BST_CHECKED : BST_UNCHECKED);
 
+	//恢复“启动时自动更新”勾选状态
+	m_chkUpdate.SetCheck(m_cfg.bAutoUpdateOnStartup ? BST_CHECKED : BST_UNCHECKED);
+
 	//只能拖拽单个目录
 	m_eDstDir.SetFlag(EDIT_DIR_JUDGE | EDIT_SIG_JUDGE);
 
@@ -416,7 +456,31 @@ BOOL CDllTestorDlg::OnInitDialog()
 	SetWindowPos(&wndBottom,0,0,m_cfg.nWindowWidth,m_cfg.nWindowHeight, SWP_SHOWWINDOW);
 	CenterWindow();
 
+	//启动时自动更新：列表非空则同步执行一次合并（强制跳过原地转码）
+	if (m_cfg.bAutoUpdateOnStartup && m_listItems.GetItemCount() > 0)
+	{
+		AppendLog(_T("[自动] 启动时自动更新，已强制跳过原地转码"));
+		RunMerge(true);
+	}
+
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+}
+
+//支持日志框 Ctrl+A 全选
+BOOL CDllTestorDlg::PreTranslateMessage(MSG* pMsg)
+{
+	if (pMsg->message == WM_KEYDOWN
+		&& (pMsg->wParam == 'A' || pMsg->wParam == 'a')
+		&& (::GetKeyState(VK_CONTROL) & 0x8000))
+	{
+		if (::GetFocus() == m_logBox.GetSafeHwnd())
+		{
+			m_logBox.SetSel(0, -1);
+			return TRUE;  //已处理，不再传递
+		}
+	}
+
+	return CDialogEx::PreTranslateMessage(pMsg);
 }
 
 void CDllTestorDlg::OnSysCommand(UINT nID, LPARAM lParam)
@@ -644,6 +708,12 @@ void CDllTestorDlg::OnBnClickedButtonClearItems()
 	{
 		m_listItems.DeleteAllItems();
 	}
+
+	//同步清空日志
+	if (m_logBox.GetSafeHwnd() != NULL)
+	{
+		m_logBox.SetWindowText(_T(""));
+	}
 }
 
 bool CDllTestorDlg::MergeFilesToOutput(
@@ -694,14 +764,40 @@ bool CDllTestorDlg::MergeFilesToOutput(
 	return true;
 }
 
-void CDllTestorDlg::OnBnClickedOk()
+//执行合并：把原 OnBnClickedOk 里的核心逻辑抽出
+//  bAutoUpdate==true 时强制忽略原地转码；不弹耗时窗/完成窗，只写日志
+void CDllTestorDlg::RunMerge(bool bAutoUpdate)
 {
-	// TODO:  在此添加命令处理程序代码
+	//1) 收集列表
+	std::vector<_tstring> vItems;
+	int nItemCount = m_listItems.GetItemCount();
+	for (int i = 0; i < nItemCount; ++i)
+	{
+		CString strCurItem = m_listItems.GetItemText(i, 0);
+		_tstring stCurItem = CMfcStrFile::CString2string(strCurItem);
+		vItems.push_back(stCurItem);
+	}
+
+	if (vItems.empty())
+	{
+		//列表为空：自动模式静默跳过，手工模式直接返回
+		return;
+	}
+
+	//2) 读取输出目录
 	CString strDstDir;
 	GetDlgItemText(IDC_EDIT_DIR, strDstDir);
 
 	if (!strDstDir.GetLength())
 	{
+		if (bAutoUpdate)
+		{
+			//自动模式下不允许弹浏览框，直接写日志并返回
+			AppendLog(_T("[跳过] 未指定输出目录，自动更新取消"));
+			return;
+		}
+
+		//手工模式：沿用原来的行为，弹选择目录框
 		strDstDir = CMfcStrFile::BrowseDir(true);
 		if (strDstDir.GetLength() > 0)
 		{
@@ -713,39 +809,44 @@ void CDllTestorDlg::OnBnClickedOk()
 		}
 	}
 
-	std::vector<_tstring> vItems;
-	int nItemCount = m_listItems.GetItemCount();
-	for (int i = 0; i < nItemCount; ++i)
-	{
-		CString strCurItem = m_listItems.GetItemText(i, 0);
-		_tstring stCurItem = CMfcStrFile::CString2string(strCurItem);
-		vItems.push_back(stCurItem);
-	}
-
 	_tstring stDstDir = CMfcStrFile::CString2string(strDstDir);
-	if (vItems.size() == 0 || !CStdDir::IfAccessDir(stDstDir) && !CStdDir::CreateDir(stDstDir))
+	if (!CStdDir::IfAccessDir(stDstDir) && !CStdDir::CreateDir(stDstDir))
 	{
+		//严重错误：仍弹窗
+		CString strErr;
+		strErr.Format(_T("无法创建输出目录：\r\n%s"), strDstDir);
+		AfxMessageBox(strErr, MB_OK | MB_ICONERROR);
+		AppendLog(_T("[错误] ") + strErr);
 		return;
 	}
 
-	//保存配置文件
+	//3) 保存配置
 	m_cfg.vItemPaths = vItems;
 	m_cfg.bIsolatePerDir = (m_chkIsolate.GetCheck() == BST_CHECKED);
+	m_cfg.bAutoUpdateOnStartup = (m_chkUpdate.GetCheck() == BST_CHECKED);
 	m_cfg.vDstPaths.clear();
 	m_cfg.vDstPaths.push_back(stDstDir);
 	WriteIniFile(GetIniPath(), m_cfg);
 
-	//开始显示进度
+	//4) 进度条与耗时
 	CTaskBarProgress tbp(m_hWnd);
 	CProgressInterface* ppi = &tbp;
 	ppi->Start();
 	CElapsedTime et;
-
-	//记录日志
-	//CLOG::Out(_T("%s"), _T("start task!"));
-	//记录耗时
 	et.Begin();
-	// ---- 原地转码（高风险，默认关闭） ----
+
+	AppendLog(bAutoUpdate ? _T("=========== 开始自动更新 ===========")
+		: _T("=========== 开始处理 ==========="));
+
+	//5) 原地转码
+	//自动更新时强制忽略：临时把 m_cfg.bInPlaceConvert 置 false 后恢复，
+	//保证不写回 INI、不影响手工流程。
+	bool bSavedInPlaceConvert = m_cfg.bInPlaceConvert;
+	if (bAutoUpdate)
+	{
+		m_cfg.bInPlaceConvert = false;
+	}
+
 	if (m_cfg.bInPlaceConvert)
 	{
 		CString strWarn;
@@ -762,6 +863,9 @@ void CDllTestorDlg::OnBnClickedOk()
 
 		if (AfxMessageBox(strWarn, MB_YESNO | MB_ICONWARNING) != IDYES)
 		{
+			AppendLog(_T("[取消] 用户中止了原地转码"));
+			m_cfg.bInPlaceConvert = bSavedInPlaceConvert;
+			ppi->End();
 			return;
 		}
 
@@ -769,33 +873,26 @@ void CDllTestorDlg::OnBnClickedOk()
 			+ _T("InPlaceConvertReport.md");
 		InPlace::Result r = InPlace::DoInPlaceConvert(vItems, m_cfg, stReportPath);
 
-		// 生成报告后，自动用系统默认程序打开
-		HINSTANCE hInst = ::ShellExecuteW(
-			m_hWnd,
-			L"open",
-			stReportPath.c_str(),
-			NULL,
-			NULL,
-			SW_SHOWNORMAL);
+		//生成报告后，自动用系统默认程序打开（保留）
+		::ShellExecuteW(m_hWnd, L"open", stReportPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
 
-		// 打开失败：静默处理，仅追加到完成提示里
-		bool bReportOpened = ((INT_PTR)hInst > 32);
-
+		//弹窗 → 改为日志
 		CString strDone;
-		strDone.Format(
-			_T("原地转码完成。\r\n\r\n成功：%d\r\n跳过：%d\r\n失败：%d\r\n\r\n报告：\r\n%s%s"),
-			r.nConverted, r.nSkipped, r.nFailed, stReportPath.c_str(),
-			bReportOpened ? _T("") : _T("\r\n（注意：报告未能自动打开，请手动查看）"));
-		AfxMessageBox(strDone, MB_OK | MB_ICONINFORMATION);
+		strDone.Format(_T("原地转码完成：成功 %d / 跳过 %d / 失败 %d，报告：%s"),
+			r.nConverted, r.nSkipped, r.nFailed, stReportPath.c_str());
+		AppendLog(strDone);
 	}
-	// ---- 原地转码结束 ----
+
+	//恢复（无论 bAutoUpdate 与否都在此处恢复，不影响手工流程）
+	m_cfg.bInPlaceConvert = bSavedInPlaceConvert;
+
 	stDstDir = CStdStr::AddSlashIfNeeded(stDstDir);
 
 	int nGlobalTotal = 0;	// 最终进度分母
 
 	if (!m_cfg.bIsolatePerDir)
 	{
-		// ---------- 合并模式（原有行为） ----------
+		// ---------- 合并模式 ----------
 		_tstring stOutputFile = stDstDir + _T("codeAll.md");
 
 		std::vector<_tstring> vAllFiles;
@@ -805,6 +902,9 @@ void CDllTestorDlg::OnBnClickedOk()
 			{
 				continue;
 			}
+
+			//每个输入目录一行日志
+			AppendLog(_T("[目录] ") + CString(vItems[i].c_str()));
 
 			std::vector<_tstring> vFound;
 			getFiles(vItems[i], vFound, m_cfg.vSuffixs, true);
@@ -829,7 +929,23 @@ void CDllTestorDlg::OnBnClickedOk()
 		}
 
 		std::string header = TextMerge::WideToUtf8(L"# 文件清单\r\n\r\n");
-		MergeFilesToOutput(vAllFiles, stOutputFile, header, stDstDir, ppi, 0, nGlobalTotal);
+		bool ok = MergeFilesToOutput(vAllFiles, stOutputFile, header,
+			stDstDir, ppi, 0, nGlobalTotal);
+		if (!ok)
+		{
+			//严重错误：弹窗 + 写日志
+			CString strErr;
+			strErr.Format(_T("无法创建输出文件：\r\n%s"), stOutputFile.c_str());
+			AfxMessageBox(strErr, MB_OK | MB_ICONERROR);
+			AppendLog(_T("[错误] ") + strErr);
+		}
+		else
+		{
+			CString strInfo;
+			strInfo.Format(_T("[完成] 共 %d 个文件 → %s"),
+				(int)vAllFiles.size(), stOutputFile.c_str());
+			AppendLog(strInfo);
+		}
 	}
 	else
 	{
@@ -849,6 +965,9 @@ void CDllTestorDlg::OnBnClickedOk()
 			{
 				continue;
 			}
+
+			//每个输入目录一行日志
+			AppendLog(_T("[目录] ") + CString(vItems[i].c_str()));
 
 			Job job;
 			job.stDir = CStdStr::GetNameOfDir(vItems[i]);	//取目录名
@@ -925,11 +1044,20 @@ void CDllTestorDlg::OnBnClickedOk()
 				nGlobalTotal);
 			if (!ok)
 			{
+				//严重错误：弹窗 + 写日志；不中断，继续处理下一个目录
 				CString strErr;
 				strErr.Format(_T("无法创建输出文件：\r\n%s"),
 					jobs[j].stOutputFile.c_str());
-				AfxMessageBox(strErr, MB_OK | MB_ICONWARNING);
-				//不中断，继续处理下一个目录
+				AfxMessageBox(strErr, MB_OK | MB_ICONERROR);
+				AppendLog(_T("[错误] ") + strErr);
+			}
+			else
+			{
+				//成功的目录只写日志
+				CString strInfo;
+				strInfo.Format(_T("[完成] 共 %d 个文件 → %s"),
+					(int)jobs[j].vFiles.size(), jobs[j].stOutputFile.c_str());
+				AppendLog(strInfo);
 			}
 
 			nDone += (int)jobs[j].vFiles.size();
@@ -938,25 +1066,25 @@ void CDllTestorDlg::OnBnClickedOk()
 
 	/*** 主程序结束 ***/
 
-	//结束耗时
+	//6) 结束耗时
 	int nMin = 0, nSecond = 0, nMilliSecond = 0;
 	et.End(nMin, nSecond, nMilliSecond);
-	//结束日志
-	//CLOG::Out(_T("%s"),_T("end task!"));
-	//CLOG::Out(_T("This task costs %d min %d second %d millisecond!"), nMin, nSecond, nMilliSecond);
-	//CLOG::End();
 
 	//结束进度显示
 	ppi->End();
 	FlashWindow(TRUE);
 
-#ifdef DLG_ELAPSED_TIME
-	CString strTips;
-	strTips.Format(_T("本次耗时 %d分%d秒%d毫秒!"), nMin, nSecond, nMilliSecond);
-	AfxMessageBox(strTips);
-#else
-	AfxMessageBox(IDS_PROCESS_OVER);
-#endif // DLG_ELAPSED_TIME
+	//不再弹出任何"完成提示/耗时"窗口，统一写日志
+	CString strDone;
+	strDone.Format(_T("=========== 完成，耗时 %d分%d秒%d毫秒 ==========="),
+		nMin, nSecond, nMilliSecond);
+	AppendLog(strDone);
+}
+
+void CDllTestorDlg::OnBnClickedOk()
+{
+	//手工点击"确定"：正常流程（原地转码警告框保留，结果写日志）
+	RunMerge(false);
 }
 
 void CDllTestorDlg::OnSize(UINT nType, int cx, int cy)

@@ -22,6 +22,7 @@ typedef struct _config_s
 	bool bInPlaceUtf8Bom;
 	bool bInPlaceDryRun;
 	bool bIsolatePerDir;
+	bool bAutoUpdateOnStartup;	// 默认 false
 	std::vector<_tstring> vExcludeDirNames;
 	std::vector<_tstring> vExcludeFileNames;
 
@@ -51,6 +52,7 @@ typedef struct _config_s
 		bInPlaceUtf8Bom = true;
 		bInPlaceDryRun = false;
 		bIsolatePerDir = false;
+		bAutoUpdateOnStartup = false;
 		vInPlaceSuffixs.push_back(_T(".c"));
 		vInPlaceSuffixs.push_back(_T(".cpp"));
 		vInPlaceSuffixs.push_back(_T(".h"));

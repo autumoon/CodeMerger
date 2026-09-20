@@ -177,6 +177,9 @@ int ReadIniFile(const _tstring& strIniPath, config_s& _cfg)
 		//独立处理开关
 		_cfg.bIsolatePerDir = Ini.GetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
 
+		//启动时自动更新开关
+		_cfg.bAutoUpdateOnStartup = Ini.GetBoolValue(INI_PRESUFFIX, INI_AUTO_UPDATE_ON_STARTUP, _cfg.bAutoUpdateOnStartup);
+
 		//按名称排除（无该键时沿用默认值，显式为空串则清空）
 		_tstring strExDir = Ini.GetValue(INI_PRESUFFIX, INI_EXCLUDE_DIR_NAMES,
 			NameListToString(_cfg.vExcludeDirNames).c_str());
@@ -213,6 +216,7 @@ int WriteIniFile(const _tstring& strIniPath, const config_s& _cfg)
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_UTF8_BOM, _cfg.bInPlaceUtf8Bom);
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_INPLACE_DRYRUN, _cfg.bInPlaceDryRun);
 	Ini.SetBoolValue(INI_PRESUFFIX, INI_ISOLATE_PER_DIR, _cfg.bIsolatePerDir);
+	Ini.SetBoolValue(INI_PRESUFFIX, INI_AUTO_UPDATE_ON_STARTUP, _cfg.bAutoUpdateOnStartup);
 	Ini.SetValue(INI_PRESUFFIX, INI_EXCLUDE_DIR_NAMES, NameListToString(_cfg.vExcludeDirNames).c_str());
 	Ini.SetValue(INI_PRESUFFIX, INI_EXCLUDE_FILE_NAMES, NameListToString(_cfg.vExcludeFileNames).c_str());
 	Ini.SetLongValue(INI_PRESUFFIX, INI_WIN_WIDTH, _cfg.nWindowWidth);
